@@ -1,5 +1,10 @@
 Revision history for Chorus-Expert
 
+1.00    11/21/2013
+		Chorus::Frame  : new syntax fmatch(slots => $slotnames, from => $frame_subset )  
+		Chorus::Engine : new method last(), reorder(), solved() 
+		                 in $rule->_SCOPE and $rule->APPLY $SELF is the rule
+
 0.01    Date/time
         First version, released on an unsuspecting world.
 

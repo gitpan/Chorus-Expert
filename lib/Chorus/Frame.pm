@@ -14,7 +14,7 @@ Version 0.01
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '1.00';
 
 =head1 SYNOPSIS
 
@@ -75,7 +75,7 @@ BEGIN {
   use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 
   @ISA         = qw(Exporter);
-  @EXPORT      = qw($SELF &fmatch);
+  @EXPORT      = qw($SELF &fmatch pushself popself);
   @EXPORT_OK   = qw();	
 
   # %EXPORT_TAGS = ( );		# eg: TAG => [ qw!name1 name2! ];
@@ -268,7 +268,7 @@ sub DESTROY {
 }
 
 sub expand {
-	my ($info, @args) = @_;
+    my ($info, @args) = @_;
     return expand(&$info(@args)) if _isa($info, 'CODE');
     return $info;	
 }
@@ -300,9 +300,9 @@ sub get {
 
     sub first { # uses expand
 	  my ($this, $slots, @args) = @_;
-      for (@{$slots}) {
+          for (@{$slots}) {
   	     return { ret => SUCCESS, res => expand($this->{$_}, @args) } if exists $this->{$_};
-      }
+          }
 	  return undef; 
     }
 
@@ -357,7 +357,7 @@ sub get {
 
   sub getN {
   	
-  	sub value_N {
+    sub value_N {
       my ($info, @args) = @_;
       return expand($info,@args) unless _isa($info,'Chorus::Frame');
       for (VALUATION_ORDER) {
@@ -381,7 +381,7 @@ sub get {
   }
 
   pushself(shift);
-  my $res = $getMode == MODE_N ? $SELF->getN(@_) : $SELF->getZ(@_);
+  my $res = $getMode == MODE_N ? getN($SELF,@_) : getZ($SELF,@_);
   popself();
   return $res;
 }
@@ -541,18 +541,23 @@ sub set {
  The result can contains the frames providing these the slots by inheritance.
  This function can be used to minimise the list of frames that should be candidate for a given process.
  
- ex. @l = grep { $_->score > 5 } fmatch('foo', 'score');
+ An optional argument 'from' can provide a list of frames as search space
+ 
+ ex. @l = grep { $_->score > 5 } fmatch(
+                                         slots => ['foo', 'score'],
+                                         from  => \@framelist 
+                                       );
      #
-     # all frames providing both slots 'foo' and 'score' (possible inheritance) and on which
-     # the method get('score') returns a value > 5
+     # all frames, optionnaly from @framelist, providing both slots 'foo' and 'score' (possible 
+     # inheritance) and on which the method get('score') returns a value > 5
 
 =cut
 
 sub fmatch {
 	      
   sub hasSlot {
-    my ($slot, $subset) = @_;
-	return grep { exists $repository{$slot}->{$_->{_KEY}} } @$subset if $subset;
+    my ($slot) = @_;
+	# return grep { exists $repository{$slot}->{$_->{_KEY}} } @$subset if $subset;
 	return map { $FMAP{$_} } keys (%{$repository{$slot}})	
   }
   
@@ -560,7 +565,7 @@ sub fmatch {
   
     sub wholeTree { 
   	
-  	  sub firstInheriting {
+  	sub firstInheriting {
   	
 	    sub inheritsFromMe {
 	      my ($this,$frame) = @_;
@@ -572,31 +577,36 @@ sub fmatch {
         return grep { inheritsFromMe($this,$_) } @all;
   	  } # firstInheriting
   
-      my ($res,@rest) = @_;
-	  return $res unless $rest[0];
-	  my @inherit = firstInheriting(shift(@rest));
-	  push @$res, @inherit;
-	  return wholeTree($res,@rest,@inherit);
-    }	# wholeTree
+        my ($res,@rest) = @_;
+	return $res unless $rest[0];
+	my @inherit = firstInheriting(shift(@rest));
+	push @$res, @inherit;
+	return wholeTree($res,@rest,@inherit);
+	 
+    } # wholeTree
   
-  	my ($slot) = @_;
+    my ($slot) = @_;
     my @all = hasSlot($slot);    
-	return wholeTree(\@all, @all);
+    return wholeTree(\@all, @all);
 	
   } # framesProvidingSlot
 
-  my ($firstslot,@otherslots) = @_;
+  my %opts = @_;
+  my ($firstslot,@otherslots) = @{$opts{slots} || []};
+
+  return () unless $firstslot;
   
   my %filter = map { $_->{_KEY} => 'Y' } @{framesProvidingSlot($firstslot)};
-
+  
   for(@otherslots) {
-  	my %faux = map { $_->{_KEY} => 'Y' } @{framesProvidingSlot($_)};
-  	foreach my $k (keys(%filter)) {
-  	  delete $filter{$k} unless $faux{$k};
-  	}
+    %filter = map { $filter{$_->{_KEY}} ? ($_->{_KEY} => 'Y') : () } @{framesProvidingSlot($_)};
   }
   
-  map { $FMAP{$_}} keys(%filter);
+  if ($opts{from}) {
+    return grep { $filter{$_->{_KEY}} } @{$opts{from}};
+  }
+  
+  return map { $FMAP{$_} } keys(%filter);
   
 } # fmatch
 

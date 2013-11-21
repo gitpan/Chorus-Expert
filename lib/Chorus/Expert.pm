@@ -83,6 +83,7 @@ sub register {
 	my $this = shift;
 	$_->set('BOARD', $board) for @_; 
 	push @agents, @_;
+	return $this;
 }
 
 =head2 process
@@ -102,7 +103,7 @@ sub process {
   $board->set('INPUT', $input);
   do { 
   	   for (@agents) {
-  	     $_->loop() unless $board->{SOLVED}; 
+  	   $_->loop() unless $board->{SOLVED}; 
        } 
   } until ($board->{SOLVED});
   $board->delete('SOLVED');

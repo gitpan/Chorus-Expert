@@ -52,8 +52,10 @@ Version 0.01
     $agent->loop();
 
 =head1 SUBROUTINES/METHODS
+=cut
 
 =head2 addrule();
+
        Defines a new rule for the Chorus::Engine object
        
        arguments :
@@ -91,41 +93,80 @@ Version 0.01
        
                          return undef;    # rule didn't apply (last instruction)
               });
-             
+=cut             
        
 =head2 loop();
+
        Tells the Chorus::Engine object to enter its inference loop.
        The loop will end only after all rules fail (~ return false) in the same iteration
        
            Ex. my $agent = new Chorus::Engine();
            
-               $agent->addrule( .. ); # rule 1
+               $agent->addrule( .. );
                ..
-               $agent->addrule( .. ); # rule n
+               $agent->addrule( .. );
 
                $agent->loop();
+=cut
 
 =head2 cut();
-       Tells the Chorus::Engine object to go directly to the next rule (same loop). This will break 
-       all nested instanciation loops on _SCOPE in the current rule.
+
+       Go directly to the next rule (same loop). This will break all nested instanciation loops
+      on _SCOPE of the current rule.
+=cut
+
+=head2 last();
+
+       Terminates the current loop on rules. This will force a cut() too.
+=cut
+
+=head2 solved();
+
+       Tells the Chorus::Engine to terminate immediately. This will force a last() too
+=cut
+
+=head2 reorder();
+
+       the rules of the agent will be reordered according to the function given as argument (works like with sort()).
+       Note - The method last() will be automatically invoked.
        
-           Ex. $agent->addrule(
-             _SCOPE => { .. },
-             _APPLY => sub {
-              if ( .. ) {
-                 $SELF->cut();                 # ~ exit this rule now
-              }
+       Exemple : the current rule in a syntax analyser has found the category 'CAT_A' for a word.
+                 The next step whould invoque as soon as possible the rules declared as interested 
+                 in this category.
+       
+           sub sortA {
+               my ($r1, $r2) = @_;
+               return -1 if $r1->_INTEREST->CAT_A;
+               return  1 if $r2->_INTEREST->CAT_A; 
+               return  0;
+           }
 
-              if ( .. ) {
-                 $SELF->BOAD->{SOLVED} = 'Y' ; # ~ ends everything now
-              }
+           $agent->addrule(     # rule 1
+             _INTEREST => {     # user slot
+                 CAT_A => 'Y',
+                 # ..
+             },
+             _SCOPE => { .. }
+             _APPLY => { .. }
            );
-
-
+       
+           $agent->addrule(     # rule n
+             _SCOPE => { .. }
+             _APPLY => { 
+               # ..
+               if ( .. ) {
+                 # ..
+                 $agent->reorder(sortA);  # will put rules interested in CAT_A to the head of the queue
+               }
+             }
+           );
+=cut
+           
 =head2 sleep();
        Disable a Chorus::Engine object until call to wakeup(). In this mode, the method loop() has no effect.
        This method can optimise the application by de-activating a Chorus::Engine object until it has 
        a good reason to work (ex. when a certain state is reached in the application ). 
+=cut
        
 =head2 wakeup();
        Enable a Chorus::Engine object -> will try again to apply its rules after next call to loop()
@@ -135,40 +176,64 @@ our $VERSION = '0.01';
 
 use 5.006;
 use strict;
-use warnings;
 
 use Chorus::Frame;
 
-sub applyrules {
-    my $stillworking = undef;
-    return undef if $SELF->{_SLEEPING};
-    foreach my $rule (@{$SELF->{_RULES}}) {
-      my (%opts, $res);
-      my %scope = map { 
-      	  my $s = $rule->getN("_SCOPE $_");
-      	  $_ => ref($s) eq 'ARRAY' ? $s : [$s || ()] 
-      } grep { $_ ne '_KEY'} keys(%{$rule->{_SCOPE}});
-      
-      my $i = 0;
-  	  my $head = 'LONGJUMP: {' . join("\n", map { $i++; 'foreach my $k' . $i . ' (@{$scope{' . $_ . '}})' . " {\n\t" . '$opts{' . $_ . '}=$k' . $i . ";" 
-  	  }  keys(%scope)) . "\n";
-  	  my $body = '$res = $rule->getN(\'_APPLY\', %opts); last LONGJUMP if ($SELF->{_BREAKING} or $SELF->BOARD->SOLVED)';
-  	  my $tail = "\n}" x scalar(keys(%scope)) . '}';
-      eval $head . $body . $tail; warn $@ if $@;
-      $stillworking ||= $res;
-      delete $SELF->{_BREAKING} if $SELF->{_BREAKING};
-    }
-    return $stillworking;
+sub reorderRules {
+  my ($funcall) = shift;
+  return unless $funcall;
+  $SELF->{_RULES} = [ sort { &{$funcall}($a,$b) } @{$SELF->{_RULES}} ];
+  $SELF->{_QUEUE} = [];
 }
+
+sub applyrules {
+
+  sub apply_rec {
+    my ($rule, $stillworking) = @_;
+    my (%opt, $res);
+    
+    my %scope = map { 
+         my $s = $rule->get("_SCOPE $_");
+         $_ => ref($s) eq 'ARRAY' ? $s : [$s || ()] 
+       } grep { $_ ne '_KEY'} keys(%{$rule->{_SCOPE}});
+    
+    my $i = 0;
+    
+    my $head = 'JUMP: {' . join("\n", map { $i++; 'foreach my $k' . $i . ' (@{$scope{' . $_ . '}})' . " {\n\t" . '$opt{' . $_ . '}=$k' . $i . ";" 
+               }  keys(%scope)) . "\n";
+    my $body = '$res = $rule->get(\'_APPLY\', %opt); last JUMP if ($SELF->{_LAST} or $SELF->{_CUT} or $SELF->BOARD->SOLVED)';
+    my $tail = "\n}" x scalar(keys(%scope)) . '}';
+    eval $head . $body . $tail; warn $@ if $@;
+    $stillworking ||= $res;
+
+    delete $SELF->{_CUT} if $SELF->{_CUT};
+    $SELF->{_QUEUE} = [] if ($SELF->{_LAST} or $SELF->BOARD->SOLVED);
+    delete $SELF->{_LAST} if $SELF->{_LAST};
+    
+    return $stillworking unless $SELF->{_QUEUE}->[0];
+    return apply_rec (shift @{$SELF->{_QUEUE}}, $stillworking);
+  }
+
+  return undef if $SELF->{_SLEEPING};
+  $SELF->{_QUEUE} = [ @{$SELF->{_RULES}} ];
+  return apply_rec(shift @{$SELF->{_QUEUE}});  
+}
+
+my $AGENT = Chorus::Frame->new(
+          cut     => sub { $SELF->{_CUT}  = 'Y' },
+          last    => sub { $SELF->{_LAST} = 'Y' },
+          loop    => sub { do {} while(applyrules() and ! $SELF->BOARD->SOLVED) },
+          sleep   => sub { $SELF->{_SLEEPING} = 'Y' },
+          wakeup  => sub { $SELF->delete('_SLEEPING')},
+          addrule => sub { push @{$SELF->{_RULES}}, Chorus::Frame->new(@_) },
+          reorder => sub { reorderRules(@_); },
+          solved  => sub { $SELF->BOARD->{SOLVED} = 'Y' },
+);
 
 sub new {
 	return Chorus::Frame->new(
-	 _RULES  => [],
-     cut     => sub { $SELF->{_BREAKING} = 'Y' },
-     loop    => sub { do {} while(applyrules() and ! $SELF->BOARD->SOLVED) },      
-     addrule => sub { push @{$SELF->{_RULES}}, Chorus::Frame->new(@_) },
-     sleep   => sub { $SELF->{_SLEEPING} = 'Y' },
-     wakeup  => sub { $SELF->delete('_SLEEPING')},
+	  _ISA    => $AGENT,
+	  _RULES  => [],
 	)
 }
 
