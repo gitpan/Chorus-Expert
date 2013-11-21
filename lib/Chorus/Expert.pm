@@ -4,6 +4,8 @@ use 5.006;
 use strict;
 use warnings;
 
+our $VERSION = '1.01';
+
 =head1 NAME
 
 Chorus::Expert - A simple skeleton of application using one or more Chorus::Engine objects (inference engines) 
@@ -11,7 +13,7 @@ Chorus::Expert - A simple skeleton of application using one or more Chorus::Engi
 
 =head1 VERSION
 
-Version 0.01
+Version 1.01
 
 =cut
 
@@ -49,8 +51,6 @@ Chorus::Expert does 3 simple things :
    $xprt->process();
 
 =cut
-
-our $VERSION = '0.01';
 
 use Chorus::Frame; 
 

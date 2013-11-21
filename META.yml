@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Chorus-Expert
-version:            1.00
+version:            1.01
 abstract:           A simple skeleton of application using one or more Chorus::Engine objects (inference engines) 
 author:
     - Christophe Ivorra <ch.ivorra@free.fr>

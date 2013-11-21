@@ -1,12 +1,18 @@
 package Chorus::Engine;
 
+use 5.006;
+use strict;
+use warnings;
+
+our $VERSION = '1.01';
+
 =head1 NAME
 
 Chorus::Engine - A very light INFERENCE ENGINE combined with the FRAME model for knowledge representation.
 
 =head1 VERSION
 
-Version 0.01
+Version 1.01
 
 =cut
 
@@ -55,7 +61,6 @@ Version 0.01
 =cut
 
 =head2 addrule();
-
        Defines a new rule for the Chorus::Engine object
        
        arguments :
@@ -81,7 +86,7 @@ Version 0.01
 
               },
                   
-              _APPLY => {
+              _APPLY => sub {
                          my %opts = @_;          # provides $opt{foo},$opt{bar},$opt{baz}
         	             
                          return undef if ( .. ); # rule didn't apply
@@ -96,7 +101,6 @@ Version 0.01
 =cut             
        
 =head2 loop();
-
        Tells the Chorus::Engine object to enter its inference loop.
        The loop will end only after all rules fail (~ return false) in the same iteration
        
@@ -110,49 +114,69 @@ Version 0.01
 =cut
 
 =head2 cut();
-
        Go directly to the next rule (same loop). This will break all nested instanciation loops
       on _SCOPE of the current rule.
+       
+           Ex. $agent->addrule(
+             _SCOPE => { .. },
+             _APPLY => sub {
+              if ( .. ) {
+                 $agent->cut();    # ~ exit the rule
+              }
+           );
 =cut
 
 =head2 last();
-
        Terminates the current loop on rules. This will force a cut() too.
+       
+           Ex. $agent->addrule(
+             _SCOPE => { .. },
+             _APPLY => sub {
+              if ( .. ) {
+                 $agent->last();
+              }
+           );
 =cut
 
 =head2 solved();
-
        Tells the Chorus::Engine to terminate immediately. This will force a last() too
+       
+           Ex. $agent->addrule(
+             _SCOPE => { .. },
+             _APPLY => sub {
+              if ( .. ) {
+                 $agent->solved();
+              }
+           );
 =cut
 
 =head2 reorder();
-
        the rules of the agent will be reordered according to the function given as argument (works like with sort()).
        Note - The method last() will be automatically invoked.
        
-       Exemple : the current rule in a syntax analyser has found the category 'CAT_A' for a word.
+       Exemple : the current rule in a syntax analyser has found the category 'CAT_C' for a word.
                  The next step whould invoque as soon as possible the rules declared as interested 
                  in this category.
        
            sub sortA {
                my ($r1, $r2) = @_;
-               return -1 if $r1->_INTEREST->CAT_A;
-               return  1 if $r2->_INTEREST->CAT_A; 
-               return  0;
+               return 1  if $r1->_INTEREST->CAT_C;
+               return -1 if $r2->_INTEREST->CAT_C; 
+               return 0;
            }
 
            $agent->addrule(     # rule 1
              _INTEREST => {     # user slot
-                 CAT_A => 'Y',
+                 CAT_C => 'Y',
                  # ..
              },
              _SCOPE => { .. }
-             _APPLY => { .. }
+             _APPLY => sub { .. }
            );
        
            $agent->addrule(     # rule n
              _SCOPE => { .. }
-             _APPLY => { 
+             _APPLY => sub { 
                # ..
                if ( .. ) {
                  # ..
@@ -171,11 +195,6 @@ Version 0.01
 =head2 wakeup();
        Enable a Chorus::Engine object -> will try again to apply its rules after next call to loop()
 =cut
-
-our $VERSION = '0.01';
-
-use 5.006;
-use strict;
 
 use Chorus::Frame;
 
@@ -207,6 +226,7 @@ sub applyrules {
     $stillworking ||= $res;
 
     delete $SELF->{_CUT} if $SELF->{_CUT};
+    
     $SELF->{_QUEUE} = [] if ($SELF->{_LAST} or $SELF->BOARD->SOLVED);
     delete $SELF->{_LAST} if $SELF->{_LAST};
     
