@@ -1,5 +1,21 @@
-Revision history for Chorus-Expert
+Revision history for Chorus::Expert
 
-0.01    Date/time
-        First version, released on an unsuspecting world.
-
+1.02    2013-12-18
+        - Chorus::Frame : DESTROY debbuged (unblessed reference)
+        - Chorus::Frame : method _inherits() added
+        - Chorus::Frame : fmatch() new syntax fmatch(slot => 'SLOT_NAME') or fmatch(slot => ['SLOT1_NAME', 'SLOT1_NAME'])
+        - Chorus::Frame : fmatch() optimize with %INSTANCES
+        - Chorus::Frame : _push() method added
+        - Chorus::Frame : bug fixed with set + multiple inheritance
+        - Chorus::Sample::Cursors : Added        
+        - bug 90530 should be fixed
+        - bug 90166 fixed
+        
+1.01    2013-11-21
+        - Chorus::Frame - new syntax : fmatch( slots => $slots , from => $subset )
+        - Chorus::Engine - new methods last(), reorder(), solved()
+        
+0.01    2013-11-08
+        - First release to CPAN
+        
+        

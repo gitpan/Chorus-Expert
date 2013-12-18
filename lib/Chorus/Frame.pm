@@ -2,9 +2,8 @@ package Chorus::Frame;
 
 use 5.006;
 use strict;
-use warnings;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 =head1 NAME
 
@@ -12,7 +11,7 @@ Chorus::Frame - A short implementation of frames from knowledge representation.
 
 =head1 VERSION
 
-Version 1.01
+Version 1.02
 
 =cut
 
@@ -75,7 +74,7 @@ BEGIN {
   use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 
   @ISA         = qw(Exporter);
-  @EXPORT      = qw($SELF &fmatch pushself popself);
+  @EXPORT      = qw($SELF &fmatch);
   @EXPORT_OK   = qw();	
 
   # %EXPORT_TAGS = ( );		# eg: TAG => [ qw!name1 name2! ];
@@ -85,6 +84,10 @@ use strict;
 use Carp;			# warn of errors (from perspective of caller)
 use Digest::MD5;
 use Scalar::Util qw(weaken);
+
+use Data::Dumper;
+
+use constant DEBUG_MEMORY => 0;
 
 use vars qw($AUTOLOAD);
 
@@ -98,13 +101,26 @@ use constant MODE_Z => 2;
 
 my $getMode = MODE_N;
 
-my %repository;
+my %REPOSITORY;
 my %FMAP;
+my %INSTANCES;
 
 our $SELF;
 my @Heap = ();
 
-=head1 SUBROUTINES/METHODS
+sub AUTOLOAD {
+  my $frame = shift || $SELF;
+  my $slotName = $AUTOLOAD;
+  $slotName =~ s/.*://;           # strip fully-qualified portion
+  get($frame, $slotName, @_); # or getN or getZ !!
+}
+
+sub _isa {
+  my ($ref, $str) = @_;
+  return (ref($ref) eq $str);
+}
+
+=head1 SUBROUTINES
 =cut
 
 =head2 setMode
@@ -128,6 +144,20 @@ sub setMode {
 	$getMode = MODE_Z if defined($opt{GET}) and uc($opt{GET}) eq 'Z';
 }
 
+=head1 METHODS
+=cut
+
+=head2 _keys
+
+  my @k = $f->_keys;
+  same as CORE::keys but excludes the special slot '_KEY' specific to all frames
+=cut
+
+sub _keys {
+  my ($this) = @_;
+  grep { $_ ne '_KEY' } keys %{$this};
+}
+
 sub pushself {
   unshift(@Heap, $SELF) if $SELF;
   $SELF = shift;
@@ -137,37 +167,69 @@ sub popself {
   $SELF = shift @Heap;
 }
 
-sub _isa {
-  my ($ref, $str) = @_;
-  return (ref($ref) eq $str);
+sub expand {
+  
+    my ($info, @args) = @_;
+    return expand(&$info(@args)) if _isa($info, 'CODE');
+    return $info;       
 }
 
-sub AUTOLOAD {
-  my $frame = shift || $SELF;
-  my $slotName = $AUTOLOAD;
-  $slotName =~ s/.*://;		  # strip fully-qualified portion
-  get($frame, $slotName, @_); # or getN or getZ !!
+=head2 _push
+
+  push new elements to a given slot (becomes an array if necessary)
+=cut
+
+sub _push {
+  my ($this, $slot, @elems) = @_;
+  return $this->{$slot} = [ @elems ] unless exists $this->{$slot};
+  $this->{$slot} = ref($this->{$slot}) eq 'ARRAY' ? [ @{$this->{$slot}}, @elems ] : [ $this->{$slot}, @elems ];  
+}
+
+sub _addInstance {
+  my ($this, $instance) = @_;
+  my $k = $instance->{_KEY};
+  $INSTANCES{$this->{_KEY}}->{$k} = $instance;
+  weaken($INSTANCES{$this->{_KEY}}->{$k}) ; # not counted in garbage collector !
+}
+
+=head2 _inherits
+
+  add inherited new frame(s) outside constructor
+  ex. $f->_inherits($F1,$F2);
+=cut
+  
+sub _inherits {
+  my ($this, @inherited) = @_;
+  $_->_addInstance($this) for @inherited;
+  $this->_push('_ISA', @inherited); # shoult test if already inherited !
+}
+
+sub _removeInstance {
+  my ($this, $instance) = @_;
+  my $k = $instance->{_KEY};
+  (warn "Instance NOT FOUND !?", return) unless $INSTANCES{$this->{_KEY}}->{$k};
+  delete $INSTANCES{$this->{_KEY}}->{$k};
 }
 
 sub blessToFrame {
 
   sub register {
 
-	my ($this) = @_;
+    my ($this) = @_;
 
     my $k;
     do {
     	$k = Digest::MD5::md5_base64( rand );
     } while(exists($FMAP{$k}));
  
-	foreach my $slot (keys(%$this)) { # register all slots
-	  $repository{$slot} = {} unless exists $repository{$slot};
-	  $repository{$slot}->{$k} = 'Y';
-	}
+    foreach my $slot (keys(%$this)) { # register all slots
+      $REPOSITORY{$slot} = {} unless exists $REPOSITORY{$slot};
+      $REPOSITORY{$slot}->{$k} = 'Y';
+    }
     
     $this->{_KEY} = $k;
     $FMAP{$k} = $this;
-    weaken($FMAP{$k}) ; # cf weak references (not counted in garbage collector)
+    weaken($FMAP{$k}) ; # not counted in garbage collector !
     return $this; 
   }
 
@@ -176,19 +238,26 @@ sub blessToFrame {
     local $_ = shift;
 
     if (_isa($_,'Chorus::Frame')) {
-      foreach my $k (keys(%$_)) {
-	    if (_isa($_->{$k},'HASH')) {
-	      next if $_->{$k}->{_NOFRAME};
- 	      bless($_->{$k}, 'Chorus::Frame');
- 	      $_->{$k}->register();	      	      
-	      blessToFrameRec($_->{$k});
-	      # $_->{$k}->_INIT; # should be '_BLESSED'
-	    } else {
-	      if (_isa($_->{$k},'ARRAY')) {
-	        blessToFrameRec($_->{$k}); # if scalar(@{$_->{$k}});
-	      }
-	    }
+      
+      while(my ($k, $val) = each %$_) {
+         if (_isa($val,'HASH')) {
+            next if $val->{_NOFRAME};
+            bless($val, 'Chorus::Frame');
+            $val->register();
+            blessToFrameRec($val);
+         } else {
+            if (_isa($val,'ARRAY')) {
+               blessToFrameRec($_->{$k});
+            }
+         }
+         if ($k eq '_ISA') {
+           foreach my $inherited (_isa($val,'ARRAY') ? map \&expand, @{$val} 
+                                                         : (expand($val))) {
+              $inherited->_addInstance($_) if $inherited;
+           }
+         }
       }
+
       return;
     }
 
@@ -258,19 +327,23 @@ sub new {
   return blessToFrame({@desc});
 }
 
-sub DESTROY {
-	my ($this) = @_;
-	my $k = $this->{_KEY};
-	foreach my $slot (keys(%$this)) {
-	    delete($repository{$slot}->{$k}) if exists $repository{$slot}->{$k};
-    }
-    delete $FMAP{$k}; # is a weak reference (not counted by garbage collector)
-}
+sub DESTROY { 
+  my ($this) = @_;
 
-sub expand {
-    my ($info, @args) = @_;
-    return expand(&$info(@args)) if _isa($info, 'CODE');
-    return $info;	
+    my $k = $this->{_KEY} or warn "Undefined _KEY(1) for " . Dumper($this);
+
+    delete $INSTANCES{$k} if exists $INSTANCES{$k};
+
+    foreach my $inherited (_isa($this->{_ISA}, 'ARRAY') ? map \&expand, @{$this->{_ISA}} : (expand($this->{_ISA}))) {	  
+      my $ik = $inherited->{_KEY} or next;
+      delete $INSTANCES{$ik}->{$k} if exists $INSTANCES{$ik}->{$k};
+    }
+
+    foreach my $slot (keys(%$this)) {
+      delete($REPOSITORY{$slot}->{$k}) if exists $REPOSITORY{$slot} and exists $REPOSITORY{$slot}->{$k};
+    }
+
+    delete $FMAP{$k}; # is a weak reference (not counted by garbage collector)
 }
 
 =head2 get
@@ -312,7 +385,7 @@ sub get {
     return $res if defined($res) and $res->{ret};
   
     if (exists($this->{_ISA})) {
-  	  my @h = _isa($this->{_ISA}, 'ARRAY') ? map \&expand, @{$this->{_ISA}} : expand($this->{_ISA});
+      my @h = _isa($this->{_ISA}, 'ARRAY') ? map \&expand, @{$this->{_ISA}} : (expand($this->{_ISA}));
       for (@h) { # upper level
         $res = $_->expandInherits($tryValuations,@args);
         return $res if defined($res) and $res->{ret};
@@ -325,8 +398,8 @@ sub get {
 	my ($this,$slot,@rest) = @_;
 
 	return $this->{$slot} if exists($this->{$slot}); # first that match (better than buildtree) !!
+        $this->{_ISA} and push @rest, _isa($this->{_ISA}, 'ARRAY') ? @{$this->{_ISA}} : $this->{_ISA}; # see expand
 
-	push @rest, _isa($this->{_ISA}, 'ARRAY') ? map \&expand, @{$this->{_ISA}} : expand($this->{_ISA});
 	my $next = shift @rest;
 	return undef unless $next;
 	return $next->inherited($slot,@rest);
@@ -400,8 +473,8 @@ sub delete {
 
     sub unregisterSlot {
       my ($this,$slot) = @_;
-      return unless exists $repository{$slot};
-	  delete $repository{$slot}->{$this->{_KEY}} if exists $repository{$slot}->{$this->{_KEY}};
+      return unless exists $REPOSITORY{$slot};
+	  delete $REPOSITORY{$slot}->{$this->{_KEY}} if exists $REPOSITORY{$slot}->{$this->{_KEY}};
     }
 
     my ($this,$slot) = @_;
@@ -468,8 +541,8 @@ sub set {
 
   sub registerSlot {
 	my ($this,$slot) = @_;
-	$repository{$slot} = {} unless exists $repository{$slot};
-	$repository{$slot}->{$this->{_KEY}} = 'Y';
+	$REPOSITORY{$slot} = {} unless exists $REPOSITORY{$slot};
+	$REPOSITORY{$slot}->{$this->{_KEY}} = 'Y';
   }
     
   sub setValue {
@@ -528,9 +601,11 @@ sub set {
   my %desc = @_;
 
   my $res;
-  foreach my $k (keys %desc) {
-      $res = $SELF->setN($k, $desc{$k}); # NO setZ() !
+ 
+  while(my($k,$val) = each %desc) {
+    $res = $SELF->setN($k, $val);
   }
+  
   popself();
   return $res;  # wil return last set if multiple pairs (key=>val) !!
  }
@@ -544,8 +619,8 @@ sub set {
  An optional argument 'from' can provide a list of frames as search space
  
  ex. @l = grep { $_->score > 5 } fmatch(
-                                         slots => ['foo', 'score'],
-                                         from  => \@framelist 
+                                         slot => ['foo', 'score'],
+                                         from => \@framelist       # optional : limit search scope
                                        );
      #
      # all frames, optionnaly from @framelist, providing both slots 'foo' and 'score' (possible 
@@ -553,46 +628,46 @@ sub set {
 
 =cut
 
+sub firstInheriting {
+          my ($this) = @_;
+          my $k = $this->{_KEY};
+          return () unless $INSTANCES{$k};
+          return(values(%{$INSTANCES{$k}}));
+          
+} # firstInheriting
+
 sub fmatch {
-	      
-  sub hasSlot {
-    my ($slot) = @_;
-	# return grep { exists $repository{$slot}->{$_->{_KEY}} } @$subset if $subset;
-	return map { $FMAP{$_} } keys (%{$repository{$slot}})	
-  }
   
   sub framesProvidingSlot { # inheritance ok
   
+    sub hasSlot {
+       my ($slot) = @_;
+       return map { $FMAP{$_} || () } keys(%{$REPOSITORY{$slot}})   
+    }
+
     sub wholeTree { 
-  	
-  	sub firstInheriting {
-  	
-	    sub inheritsFromMe {
-	      my ($this,$frame) = @_;
-	      return grep { $_ == $this } _isa($frame->{_ISA},'ARRAY') ? @{$frame->{_ISA}} : ($frame->{_ISA});
-        }
-		    
-        my ($this) = @_;
-        my @all = hasSlot('_ISA'); # tous les frames ayant un slot _ISA  !?
-        return grep { inheritsFromMe($this,$_) } @all;
-  	  } # firstInheriting
-  
-        my ($res,@rest) = @_;
-	return $res unless $rest[0];
-	my @inherit = firstInheriting(shift(@rest));
-	push @$res, @inherit;
-	return wholeTree($res,@rest,@inherit);
-	 
+        
+       my ($res, @dig) = @_;
+         return $res unless $dig[0];
+         my @inheriting = map { $_->firstInheriting } @dig;
+         push(@$res, @inheriting);
+         return wholeTree($res,@inheriting);
+         
     } # wholeTree
   
     my ($slot) = @_;
-    my @all = hasSlot($slot);    
-    return wholeTree(\@all, @all);
+    
+    my @res = hasSlot($slot);
+    my @inheriting = map { $_->firstInheriting } @res;
+  
+    push @res, @inheriting;
+    return wholeTree(\@res, @inheriting);
 	
   } # framesProvidingSlot
 
   my %opts = @_;
-  my ($firstslot,@otherslots) = @{$opts{slots} || []};
+  $opts{slot} = [ $opts{slot} || () ] unless _isa($opts{slot},'ARRAY');
+  my ($firstslot,@otherslots) = @{$opts{slot} || []};
 
   return () unless $firstslot;
   

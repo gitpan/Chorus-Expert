@@ -4,15 +4,17 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
+
+use Chorus::Frame;
 
 =head1 NAME
 
-Chorus::Engine - A very light INFERENCE ENGINE combined with the FRAME model for knowledge representation.
+Chorus::Engine - A very light inference engine combined with the frame model for knowledge representation.
 
 =head1 VERSION
 
-Version 1.01
+Version 1.02
 
 =cut
 
@@ -60,7 +62,8 @@ Version 1.01
 =head1 SUBROUTINES/METHODS
 =cut
 
-=head2 addrule();
+=head2 addrule()
+
        Defines a new rule for the Chorus::Engine object
        
        arguments :
@@ -100,7 +103,8 @@ Version 1.01
               });
 =cut             
        
-=head2 loop();
+=head2 loop()
+
        Tells the Chorus::Engine object to enter its inference loop.
        The loop will end only after all rules fail (~ return false) in the same iteration
        
@@ -113,7 +117,8 @@ Version 1.01
                $agent->loop();
 =cut
 
-=head2 cut();
+=head2 cut()
+
        Go directly to the next rule (same loop). This will break all nested instanciation loops
       on _SCOPE of the current rule.
        
@@ -126,7 +131,8 @@ Version 1.01
            );
 =cut
 
-=head2 last();
+=head2 last()
+
        Terminates the current loop on rules. This will force a cut() too.
        
            Ex. $agent->addrule(
@@ -138,7 +144,8 @@ Version 1.01
            );
 =cut
 
-=head2 solved();
+=head2 solved()
+
        Tells the Chorus::Engine to terminate immediately. This will force a last() too
        
            Ex. $agent->addrule(
@@ -150,7 +157,8 @@ Version 1.01
            );
 =cut
 
-=head2 reorder();
+=head2 reorder()
+
        the rules of the agent will be reordered according to the function given as argument (works like with sort()).
        Note - The method last() will be automatically invoked.
        
@@ -186,17 +194,22 @@ Version 1.01
            );
 =cut
            
-=head2 sleep();
+=head2 sleep()
+
        Disable a Chorus::Engine object until call to wakeup(). In this mode, the method loop() has no effect.
        This method can optimise the application by de-activating a Chorus::Engine object until it has 
        a good reason to work (ex. when a certain state is reached in the application ). 
 =cut
        
-=head2 wakeup();
+=head2 wakeup()
+
        Enable a Chorus::Engine object -> will try again to apply its rules after next call to loop()
 =cut
 
-use Chorus::Frame;
+=head2 reorderRules()
+
+  use from rules body to optimize the engine defining best candidates (rules) for next loop (break the current loop)
+=cut
 
 sub reorderRules {
   my ($funcall) = shift;
@@ -204,6 +217,11 @@ sub reorderRules {
   $SELF->{_RULES} = [ sort { &{$funcall}($a,$b) } @{$SELF->{_RULES}} ];
   $SELF->{_QUEUE} = [];
 }
+
+=head2 applyrules()
+
+  main engine loop (iterates on $SELF->_RULES)
+=cut
 
 sub applyrules {
 
@@ -249,6 +267,10 @@ my $AGENT = Chorus::Frame->new(
           reorder => sub { reorderRules(@_); },
           solved  => sub { $SELF->BOARD->{SOLVED} = 'Y' },
 );
+
+=head2 new
+  contructor : initialize a new engine
+=cut
 
 sub new {
 	return Chorus::Frame->new(

@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 =head1 NAME
 
@@ -13,7 +13,7 @@ Chorus::Expert - A simple skeleton of application using one or more Chorus::Engi
 
 =head1 VERSION
 
-Version 1.01
+Version 1.02
 
 =cut
 
@@ -87,6 +87,7 @@ sub register {
 }
 
 =head2 process
+
    Tells the Chorus::Expert object to enter in an infinite loop until one of the engines 
    set the attribute $SELF->BOARD->{SOLVED} to something true. 
    The Chorus::Expert object will ask its agents, one after one, to test all its rules with all
